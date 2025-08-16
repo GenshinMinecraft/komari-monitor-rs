@@ -211,8 +211,8 @@ pub fn realtime_network(network: &Networks) -> Network {
 
     unsafe {
         Network {
-            up: (up as f64 / DURATION / 1000.0) as u64,
-            down: (down as f64 / DURATION / 1000.0) as u64,
+            up: (up as f64 / DURATION) as u64,
+            down: (down as f64 / DURATION) as u64,
             total_up,
             total_down,
         }
