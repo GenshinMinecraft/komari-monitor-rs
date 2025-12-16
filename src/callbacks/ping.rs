@@ -6,6 +6,7 @@ use log::{debug, warn};
 use miniserde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
+use std::sync::atomic::AtomicU16;
 use std::time::Duration;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -197,8 +198,9 @@ pub fn icmp_ipv4(ip: Ipv4Addr, task_id: u64) -> Result<PingEventCallback, String
         return Err(String::from("Failed to bind Raw socket"));
     }
 
+    let identifier = get_identifier();
     let packet = Icmpv4Packet::with_echo_request(
-        42,
+        identifier,
         0,
         vec![
             0x20, 0x20, 0x75, 0x73, 0x74, 0x20, 0x61, 0x20, 0x66, 0x6c, 0x65, 0x73, 0x68, 0x20,
@@ -209,6 +211,7 @@ pub fn icmp_ipv4(ip: Ipv4Addr, task_id: u64) -> Result<PingEventCallback, String
     )
     .unwrap();
 
+    let timeout = Duration::from_secs(3);
     let send_time = Instant::now();
     if socket4.send_to(ip, packet).is_err() {
         let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
@@ -223,48 +226,49 @@ pub fn icmp_ipv4(ip: Ipv4Addr, task_id: u64) -> Result<PingEventCallback, String
         });
     }
 
-    socket4.set_timeout(Some(Duration::from_secs(3)));
+    loop {
+        let new_timeout = timeout.checked_sub(send_time.elapsed());
+        if new_timeout.is_none() {
+            break;
+        }
+        socket4.set_timeout(new_timeout);
 
-    let Ok((resp, _)) = socket4.rcv_from() else {
-        let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-        let finished_at = now.format(&Rfc3339).unwrap_or_default();
+        let Ok((resp, _)) = socket4.rcv_from() else {
+            break;
+        };
 
-        return Ok(PingEventCallback {
-            type_str: String::from("ping_result"),
-            task_id,
-            ping_type: String::from("icmp"),
-            value: Some(-1),
-            finished_at,
-        });
-    };
+        if let Icmpv4Message::EchoReply {
+            identifier: resp_id,
+            sequence: _,
+            payload: _,
+        } = resp.message
+            && resp_id == identifier
+        {
+            let rtt = send_time.elapsed();
 
-    let rtt = send_time.elapsed();
+            let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+            let finished_at = now.format(&Rfc3339).unwrap_or_default();
+
+            return Ok(PingEventCallback {
+                type_str: String::from("ping_result"),
+                task_id,
+                ping_type: String::from("icmp"),
+                value: i64::try_from(rtt.as_millis()).ok(),
+                finished_at,
+            });
+        }
+    }
 
     let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
     let finished_at = now.format(&Rfc3339).unwrap_or_default();
 
-    if let Icmpv4Message::EchoReply {
-        identifier: _,
-        sequence: _sequence,
-        payload: _payload,
-    } = resp.message
-    {
-        Ok(PingEventCallback {
-            type_str: String::from("ping_result"),
-            task_id,
-            ping_type: String::from("icmp"),
-            value: i64::try_from(rtt.as_millis()).ok(),
-            finished_at,
-        })
-    } else {
-        Ok(PingEventCallback {
-            type_str: String::from("ping_result"),
-            task_id,
-            ping_type: String::from("icmp"),
-            value: Some(-1),
-            finished_at,
-        })
-    }
+    Ok(PingEventCallback {
+        type_str: String::from("ping_result"),
+        task_id,
+        ping_type: String::from("icmp"),
+        value: Some(-1),
+        finished_at,
+    })
 }
 
 pub fn icmp_ipv6(ip: Ipv6Addr, task_id: u64) -> Result<PingEventCallback, String> {
@@ -276,8 +280,9 @@ pub fn icmp_ipv6(ip: Ipv6Addr, task_id: u64) -> Result<PingEventCallback, String
         return Err(String::from("Failed to bind Raw socket"));
     }
 
+    let identifier = get_identifier();
     let packet = Icmpv6Packet::with_echo_request(
-        42,
+        identifier,
         0,
         vec![
             0x20, 0x20, 0x75, 0x73, 0x74, 0x20, 0x61, 0x20, 0x66, 0x6c, 0x65, 0x73, 0x68, 0x20,
@@ -288,8 +293,8 @@ pub fn icmp_ipv6(ip: Ipv6Addr, task_id: u64) -> Result<PingEventCallback, String
     )
     .unwrap();
 
+    let timeout = Duration::from_secs(3);
     let send_time = Instant::now();
-
     if socket6.send_to(ip, packet).is_err() {
         let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
         let finished_at = now.format(&Rfc3339).unwrap_or_default();
@@ -303,46 +308,55 @@ pub fn icmp_ipv6(ip: Ipv6Addr, task_id: u64) -> Result<PingEventCallback, String
         });
     }
 
-    socket6.set_timeout(Some(Duration::from_secs(3)));
+    while send_time.elapsed() < timeout {
+        let new_timeout = timeout.checked_sub(send_time.elapsed());
+        if new_timeout.is_none() {
+            break;
+        }
+        socket6.set_timeout(new_timeout);
 
-    let Ok((resp, _)) = socket6.rcv_from() else {
-        let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
-        let finished_at = now.format(&Rfc3339).unwrap_or_default();
+        let Ok((resp, _)) = socket6.rcv_from() else {
+            break;
+        };
 
-        return Ok(PingEventCallback {
-            type_str: String::from("ping_result"),
-            task_id,
-            ping_type: String::from("icmp"),
-            value: Some(-1),
-            finished_at,
-        });
-    };
+        if let Icmpv6Message::EchoReply {
+            identifier: resp_id,
+            sequence: _,
+            payload: _,
+        } = resp.message
+            && resp_id == task_id as u16
+        {
+            let rtt = send_time.elapsed();
 
-    let rtt = send_time.elapsed();
+            let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
+            let finished_at = now.format(&Rfc3339).unwrap_or_default();
+
+            return Ok(PingEventCallback {
+                type_str: String::from("ping_result"),
+                task_id,
+                ping_type: String::from("icmp"),
+                value: i64::try_from(rtt.as_millis()).ok(),
+                finished_at,
+            });
+        }
+    }
 
     let now = OffsetDateTime::now_local().unwrap_or_else(|_| OffsetDateTime::now_utc());
     let finished_at = now.format(&Rfc3339).unwrap_or_default();
 
-    if let Icmpv6Message::EchoReply {
-        identifier: _,
-        sequence: _sequence,
-        payload: _payload,
-    } = resp.message
-    {
-        Ok(PingEventCallback {
-            type_str: String::from("ping_result"),
-            task_id,
-            ping_type: String::from("icmp"),
-            value: i64::try_from(rtt.as_millis()).ok(),
-            finished_at,
-        })
-    } else {
-        Ok(PingEventCallback {
-            type_str: String::from("ping_result"),
-            task_id,
-            ping_type: String::from("icmp"),
-            value: Some(-1),
-            finished_at,
-        })
-    }
+    Ok(PingEventCallback {
+        type_str: String::from("ping_result"),
+        task_id,
+        ping_type: String::from("icmp"),
+        value: Some(-1),
+        finished_at,
+    })
+}
+
+fn get_identifier() -> u16 {
+    static GENERATOR: std::sync::LazyLock<AtomicU16> = std::sync::LazyLock::new(|| {
+        AtomicU16::new(std::process::id() as u16 ^ OffsetDateTime::now_utc().millisecond())
+    });
+
+    (&*GENERATOR).fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
