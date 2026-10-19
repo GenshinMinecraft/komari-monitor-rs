@@ -224,6 +224,7 @@ async fn main() {
         let mut ping_interval = interval_at(Instant::now() + WS_PING_PERIOD, WS_PING_PERIOD);
         ping_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut last_network_refresh = Instant::now();
+        let mut is_first_network_refresh = true;
 
         info!("Real-time WebSocket connected");
         let mut callback_task_completed = false;
@@ -261,6 +262,13 @@ async fn main() {
             networks.refresh(true);
             let network_interval = last_network_refresh.elapsed();
             last_network_refresh = tokio::time::Instant::now();
+            if is_first_network_refresh {
+                // Initialization time makes the first delta unsuitable for a speed sample.
+                // Establish a baseline, then wait for a full sampling interval.
+                is_first_network_refresh = false;
+                sleep(Duration::from_millis(args.realtime_info_interval.max(1))).await;
+                continue;
+            }
             disks.refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
             let real_time = RealTimeInfo::build(
                 &sysinfo_sys,
