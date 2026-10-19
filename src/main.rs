@@ -223,6 +223,7 @@ async fn main() {
         report_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut ping_interval = interval_at(Instant::now() + WS_PING_PERIOD, WS_PING_PERIOD);
         ping_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut last_network_refresh = Instant::now();
 
         info!("Real-time WebSocket connected");
         let mut callback_task_completed = false;
@@ -258,13 +259,15 @@ async fn main() {
                     .with_memory(MemoryRefreshKind::everything()),
             );
             networks.refresh(true);
+            let network_interval = last_network_refresh.elapsed();
+            last_network_refresh = tokio::time::Instant::now();
             disks.refresh_specifics(true, DiskRefreshKind::nothing().with_storage());
             let real_time = RealTimeInfo::build(
                 &sysinfo_sys,
                 &networks,
                 &disks,
                 args.fake,
-                args.realtime_info_interval,
+                network_interval,
             );
 
             let json = json::to_string(&real_time);

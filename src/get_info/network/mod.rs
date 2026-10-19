@@ -24,7 +24,7 @@ mod imp {
         trace!("Traffic offset updated to: tx={}, rx={}", offset_tx, offset_rx);
     }
 
-    pub fn realtime_network(network: &Networks, interval_ms: u64) -> Network {
+    pub fn realtime_network(network: &Networks, interval: std::time::Duration) -> Network {
         let (up, down, total_up, total_down) = filter_network(network);
 
         let offset_tx = TRAFFIC_OFFSET_TX.load(Ordering::Relaxed);
@@ -33,7 +33,7 @@ mod imp {
         let cycle_total_up = (total_up as i64 + offset_tx).max(0) as u64;
         let cycle_total_down = (total_down as i64 + offset_rx).max(0) as u64;
 
-        let interval_s = interval_ms as f64 / 1000.0;
+        let interval_s = interval.as_secs_f64();
         Network {
             up: if interval_s > 0.0 { (up as f64 / interval_s) as u64 } else { 0 },
             down: if interval_s > 0.0 { (down as f64 / interval_s) as u64 } else { 0 },
@@ -63,7 +63,7 @@ mod imp {
         }
     }
 
-    pub fn realtime_network(network: &Networks, interval_ms: u64) -> Network {
+    pub fn realtime_network(network: &Networks, interval: std::time::Duration) -> Network {
         let (up, down, total_up, total_down) = filter_network(network);
 
         let (offset_tx, offset_rx) = if let Ok(offset) = TRAFFIC_OFFSET.read() {
@@ -76,7 +76,7 @@ mod imp {
         let cycle_total_up = (total_up as i64 + offset_tx).max(0) as u64;
         let cycle_total_down = (total_down as i64 + offset_rx).max(0) as u64;
 
-        let interval_s = interval_ms as f64 / 1000.0;
+        let interval_s = interval.as_secs_f64();
         Network {
             up: if interval_s > 0.0 { (up as f64 / interval_s) as u64 } else { 0 },
             down: if interval_s > 0.0 { (down as f64 / interval_s) as u64 } else { 0 },

@@ -9,6 +9,7 @@ use crate::get_info::os::os;
 use crate::get_info::{realtime_process, realtime_uptime};
 use log::{debug, error, info};
 use miniserde::{Deserialize, Serialize};
+use std::time::Duration;
 use sysinfo::{Disks, Networks};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -186,7 +187,7 @@ impl RealTimeInfo {
         network: &Networks,
         disk: &Disks,
         fake: f64,
-        interval_ms: u64,
+        interval: Duration,
     ) -> Self {
         let cpu = realtime_cpu(sysinfo_sys);
 
@@ -207,7 +208,7 @@ impl RealTimeInfo {
         let fake_load5 = load.load5 * fake;
         let fake_load15 = load.load15 * fake;
 
-        let network_info = realtime_network(network, interval_ms);
+        let network_info = realtime_network(network, interval);
         let fake_network_up = (network_info.up as f64 * fake) as u64;
         let fake_network_down = (network_info.down as f64 * fake) as u64;
         let fake_network_total_up = (network_info.total_up as f64 * fake) as u64;
