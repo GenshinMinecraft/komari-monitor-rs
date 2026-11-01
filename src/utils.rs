@@ -102,7 +102,7 @@ pub async fn connect_ws(
             .await
             .map_err(|_| "WebSocket connection timeout".to_string())?
             .map(|ws| ws.0)
-            .map_err(|_| "Failed to establish WebSocket connection".to_string())
+            .map_err(|e| format!("Failed to establish WebSocket connection: {e}"))
         } else {
             timeout(
                 connection_timeout,
@@ -111,14 +111,14 @@ pub async fn connect_ws(
             .await
             .map_err(|_| "WebSocket connection timeout".to_string())?
             .map(|ws| ws.0)
-            .map_err(|_| "Failed to establish WebSocket connection".into())
+            .map_err(|e| format!("Failed to establish WebSocket connection: {e}"))
         }
     } else {
         timeout(connection_timeout, connect_async(url))
             .await
             .map_err(|_| "WebSocket connection timeout".to_string())?
             .map(|ws| ws.0)
-            .map_err(|_| "Failed to establish WebSocket connection".to_string())
+            .map_err(|e| format!("Failed to establish WebSocket connection: {e}"))
     }
 }
 
